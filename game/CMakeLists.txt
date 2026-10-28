@@ -95,6 +95,7 @@ set(RUNTIME_SOURCE
         graphics/opengl_renderer/VisDataHandler.cpp
         graphics/opengl_renderer/Warp.cpp
         graphics/pipelines/opengl.cpp
+        graphics/vr/OpenXrSession.cpp
         graphics/sceGraphicsInterface.cpp
         graphics/texture/jak1_tpage_dir.cpp
         graphics/texture/jak2_tpage_dir.cpp
@@ -390,6 +391,11 @@ add_subdirectory(sound)
 add_library(runtime STATIC ${RUNTIME_SOURCE} "../third-party/glad/src/glad.c")
 
 target_link_libraries(runtime common fmt SDL3::SDL3 imgui discord-rpc sound stb_image libco libcurl)
+# VR
+target_link_libraries(runtime openxr_loader)
+if(WIN32)
+  target_link_libraries(runtime opengl32)
+endif()
 if(WIN32)
     target_link_libraries(runtime mman)
 else()

@@ -28,6 +28,7 @@
 #include "game/runtime.h"
 #include "game/sce/libscf.h"
 #include "game/system/hid/input_manager.h"
+#include "game/graphics/vr/OpenXrSession.h"
 #include "game/system/hid/sdl_util.h"
 
 #include "fmt/format.h"
@@ -297,6 +298,14 @@ static std::shared_ptr<GfxDisplay> gl_make_display(int width,
   display->set_imgui_visible(Gfx::g_debug_settings.show_imgui);
   prof().end_event();
 
+  if (is_main) {
+    auto p = scoped_prof("startup::vr::init");
+    if (vr::get_session().init(window)) {
+      // the headset sets the pace; don't also wait for the monitor's vsync
+      SDL_GL_SetSwapInterval(0);
+    }
+  }
+
   {
     auto p = scoped_prof("startup::sdl::init_imgui");
     // setup imgui
@@ -435,6 +444,9 @@ void GLDisplay::draw_splash(int fb_w, int fb_h) {
 }
 
 GLDisplay::~GLDisplay() {
+  if (m_main) {
+    vr::get_session().shutdown();
+  }
   if (m_splash_texture)
     glDeleteTextures(1, &m_splash_texture);
   if (m_splash_program)
@@ -587,6 +599,9 @@ void GLDisplay::process_sdl_events() {
  * Main function called to render graphics frames. This is called in a loop.
  */
 void GLDisplay::render() {
+  // VR: wait for the headset's next frame slot (no-op without a headset)
+  vr::get_session().begin_frame();
+
   // Before we process the current frames SDL events we for keyboard/mouse button inputs.
   //
   // This technically means that keyboard/mouse button inputs will be a frame behind but the
@@ -669,6 +684,20 @@ void GLDisplay::render() {
     }
   }
 
+  // VR: show the finished game image in the headset
+  if (vr::get_session().is_initialized()) {
+    auto p = scoped_prof("vr-submit");
+    int rx = 0, ry = 0, rw = 0, rh = 0;
+    g_gfx_data->ogl_renderer.get_draw_region(rx, ry, rw, rh);
+    if (rw <= 0 || rh <= 0) {
+      rx = 0;
+      ry = 0;
+      rw = fbuf_w;
+      rh = fbuf_h;
+    }
+    vr::get_session().end_frame_with_screen(0, rx, ry, rw, rh);
+  }
+
   // render debug
   if (is_imgui_visible()) {
     auto p = scoped_prof("debug-gui");
@@ -700,7 +729,8 @@ void GLDisplay::render() {
   }
 
   // switch vsync modes, if requested
-  if (Gfx::g_global_settings.vsync != Gfx::g_global_settings.old_vsync) {
+  if (Gfx::g_global_settings.vsync != Gfx::g_global_settings.old_vsync &&
+      !vr::get_session().is_initialized()) {
     Gfx::g_global_settings.old_vsync = Gfx::g_global_settings.vsync;
     // NOTE - -1 can be used for adaptive vsync, maybe useful for Jak 2+?
     // https://wiki.libsdl.org/SDL3/SDL_GL_SetSwapInterval

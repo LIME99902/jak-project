@@ -74,6 +74,14 @@ class OpenGLRenderer {
   // the graphics system.
   void render(DmaFollower dma, const RenderOptions& settings);
 
+  // Where the game image was drawn in the window framebuffer last frame (used by VR).
+  void get_draw_region(int& x, int& y, int& w, int& h) const {
+    x = m_render_state.draw_offset_x;
+    y = m_render_state.draw_offset_y;
+    w = m_render_state.draw_region_w;
+    h = m_render_state.draw_region_h;
+  }
+
  private:
   void setup_frame(const RenderOptions& settings);
   void dispatch_buckets(DmaFollower dma, ScopedProfilerNode& prof, bool sync_after_buckets);

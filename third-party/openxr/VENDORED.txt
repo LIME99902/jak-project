@@ -1,0 +1,2 @@
+OpenXR-SDK release-1.1.63 (https://github.com/KhronosGroup/OpenXR-SDK), specification/ omitted
+Patched src/version.cmake: version regex allows the define to end right after ')'.

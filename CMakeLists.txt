@@ -301,6 +301,13 @@ include_directories(third-party/glad/include)
 include_directories(third-party/SDL/include)
 build_third_party_lib(imgui imgui)
 
+# OpenXR loader (VR support). Built as a static library.
+set(DYNAMIC_LOADER OFF CACHE BOOL "" FORCE)
+set(BUILD_API_LAYERS OFF CACHE BOOL "" FORCE)
+set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(BUILD_WITH_SYSTEM_JSONCPP OFF CACHE BOOL "" FORCE)
+build_third_party_lib(openxr openxr_loader)
+
 # build the game code in C++
 add_subdirectory(game)
 
