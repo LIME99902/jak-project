@@ -4,6 +4,7 @@
 
 #include "game/graphics/display.h"
 #include "game/graphics/gfx.h"
+#include "game/graphics/vr/OpenXrSession.h"
 #include "game/kernel/common/kernel_types.h"
 #include "game/system/hid/input_bindings.h"
 
@@ -92,6 +93,37 @@ int scePadRead(int port, int /*slot*/, u8* rdata) {
     for (size_t i = 0; i < pad_data.value()->button_data.size(); i++) {
       cpad->button0 |= pad_data.value()->button_data.at(i) << i;
     }
+  } else {
+    cpad->button0 = 0;
+    cpad->leftx = cpad->lefty = cpad->rightx = cpad->righty = PadData::ANALOG_NEUTRAL;
+    for (auto& p : cpad->abutton) {
+      p = 0;
+    }
+  }
+
+  // VR motion controllers act as player 1's controller, on top of any keyboard/gamepad.
+  if (port == 0) {
+    const auto vr_pad = vr::get_session().get_pad_state();
+    if (vr_pad.active) {
+      for (size_t i = 0; i < vr_pad.buttons.size(); i++) {
+        if (vr_pad.buttons[i]) {
+          cpad->button0 |= 1 << i;
+        }
+      }
+      for (size_t i = 0; i < vr_pad.pressure.size(); i++) {
+        if (vr_pad.pressure[i] > cpad->abutton[i]) {
+          cpad->abutton[i] = vr_pad.pressure[i];
+        }
+      }
+      if (vr_pad.left_stick_used) {
+        cpad->leftx = vr_pad.lx;
+        cpad->lefty = vr_pad.ly;
+      }
+      if (vr_pad.right_stick_used) {
+        cpad->rightx = vr_pad.rx;
+        cpad->righty = vr_pad.ry;
+      }
+    }
   }
 
   return 32;
@@ -101,6 +133,11 @@ int scePadSetActDirect(int port, int /*slot*/, const u8* data) {
   // offsets are set by scePadSetActAlign, but we already know the game uses 0 for big motor and 1
   // for small motor
   // also, the "slow" motor corresponds to the "large" motor on the PS2
+  if (port == 0 && vr::get_session().get_pad_state().active) {
+    float big = data[1] / 255.f;
+    float small = data[0] ? 0.5f : 0.f;
+    vr::get_session().set_rumble(big > small ? big : small);
+  }
   if (Display::GetMainDisplay()) {
     if (!Display::GetMainDisplay()->get_input_manager()->controller_has_rumble(port)) {
       return 0;
