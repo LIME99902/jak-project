@@ -1,6 +1,7 @@
 # Builds the VR fork for Windows and packages it the same way an
 # official OpenGOAL release is laid out (gk.exe, goalc.exe, extractor.exe, data/).
-# Download the "opengoal-vr-windows" artifact from the run page.
+# Each successful build is published as a "VR build N" pre-release.
+# If the build fails, the compiler errors are posted as a comment on the commit.
 name: VR Windows Build
 
 on:
@@ -9,22 +10,91 @@ on:
       - vr
   workflow_dispatch: {}
 
+permissions:
+  contents: write
+
 jobs:
   build_windows:
     name: "Windows (clang, static)"
-    uses: ./.github/workflows/windows-build-clang.yaml
-    with:
-      cmakePreset: "Release-windows-clang-static"
-      cachePrefix: "vr"
-      uploadArtifacts: true
-    secrets: inherit
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Install NASM
+        run: |
+          $chocoVersion = choco --version
+          if ($chocoVersion.StartsWith("2.")) {
+            choco install nasm --source="${{ github.workspace }}/third-party/nasm"
+          } else {
+            choco install ${{ github.workspace }}/third-party/nasm/old/nasm.2.15.05.nupkg
+          }
+
+      - name: Setup sccache
+        uses: hendrikmuhs/ccache-action@v1.2.24
+        with:
+          variant: sccache
+          key: windows-2022-vr-Release-windows-clang-static-${{ github.sha }}
+          restore-keys: windows-2022-vr-Release-windows-clang-static
+          max-size: 1000M
+
+      - uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Remove Strawberry Perl from PATH
+        run: |
+          $env:PATH = $env:PATH -replace "C:\\Strawberry\\c\\bin;", ""
+          "PATH=$env:PATH" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: CMake Generation
+        shell: pwsh
+        run: |
+          cmake -B build --preset=Release-windows-clang-static -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache . 2>&1 | Tee-Object -FilePath cmake.log
+          exit $LASTEXITCODE
+
+      - name: Build Project
+        shell: pwsh
+        run: |
+          cmake --build build --parallel $env:NUMBER_OF_PROCESSORS -- -k 0 2>&1 | Tee-Object -FilePath build.log
+          exit $LASTEXITCODE
+
+      - name: Report errors on the commit
+        if: failure()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo "### Windows build failed"
+            echo '```'
+            for f in cmake.log build.log; do
+              [ -f "$f" ] || continue
+              grep -n -i -E "error|FAILED|undefined|unresolved" "$f" | grep -v -i "werror" | head -n 80
+            done
+            echo '```'
+            echo '<details><summary>end of build log</summary>'
+            echo
+            echo '```'
+            [ -f build.log ] && tail -n 60 build.log || tail -n 60 cmake.log
+            echo '```'
+            echo '</details>'
+          } > report.md
+          gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" -F body=@report.md > /dev/null
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v7
+        with:
+          name: opengoal-windows-vr
+          if-no-files-found: error
+          path: ./build/bin
 
   package:
     name: "Package"
     needs: build_windows
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v7
 
@@ -35,12 +105,6 @@ jobs:
 
       - name: Lay out release folder
         run: ./.github/scripts/releases/extract_build_windows.sh ./ci-artifacts/opengoal-vr ./ci-artifacts/bin ./
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: opengoal-vr-windows
-          if-no-files-found: error
-          path: ./ci-artifacts/opengoal-vr
 
       - name: Zip build
         run: cd ./ci-artifacts/opengoal-vr && 7z a -tzip ../opengoal-vr-windows.zip .
