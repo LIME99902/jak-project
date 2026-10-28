@@ -7,6 +7,7 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <unknwn.h>  // IUnknown, used by openxr_platform.h
 #define XR_USE_PLATFORM_WIN32
 #endif
 
